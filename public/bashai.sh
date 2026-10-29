@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# BashAI Native Terminal Shell Integration
-# Run directly in standard Bash/Zsh on any Linux machine or SSH session
+# BashAI Native Shell Integration
+# Works identically in both ZSH and BASH
 # Configured for llama.cpp on port 8888 (OpenAI-compatible) and Ollama
 # ==============================================================================
 
@@ -16,14 +16,14 @@ export BASHAI_ENDPOINT="${BASHAI_ENDPOINT:-http://localhost:8888}"
 export BASHAI_MODEL="${BASHAI_MODEL:-gemma-2b-it}"
 export BASHAI_API_KEY="${BASHAI_API_KEY:-}"
 
-?() {
+bashai() {
   if [ $# -eq 0 ]; then
     echo -e "\033[1;36m==> BashAI Small LLM Shell Assistant\033[0m"
     echo -e "Backend:  \033[32m$BASHAI_BACKEND\033[0m"
     echo -e "Endpoint: \033[33m$BASHAI_ENDPOINT\033[0m"
     echo -e "Model:    \033[35m$BASHAI_MODEL\033[0m"
     echo ""
-    echo -e "Usage: \033[33m? <plain english request>\033[0m"
+    echo -e "Usage: \033[33m? <plain english query>\033[0m or \033[33mai <query>\033[0m"
     echo -e "Example: \033[32m? restart nginx and check logs\033[0m"
     echo -e "To change config: edit \033[34m~/.bashai/config.env\033[0m"
     return 0
@@ -34,7 +34,7 @@ export BASHAI_API_KEY="${BASHAI_API_KEY:-}"
 
   echo -e "\033[0;36m[BashAI]\033[0m Consulting $BASHAI_BACKEND on $BASHAI_ENDPOINT ($BASHAI_MODEL)..."
 
-  local SYS_PROMPT="You are a Linux sysadmin bash generator. Current directory: $CURRENT_DIR. Translate: '$QUERY' into a single bash command. Return JSON ONLY with fields: {\"command\": \"...\", \"explanation\": \"...\", \"safetyLevel\": \"safe|warning|destructive\"}"
+  local SYS_PROMPT="You are a Linux sysadmin assistant. Current dir: $CURRENT_DIR. Translate: '$QUERY' into a single bash command. Return JSON ONLY with fields: {\"command\": \"...\", \"explanation\": \"...\", \"safetyLevel\": \"safe|warning|destructive\"}"
 
   local RESULT=""
   local CMD=""
@@ -105,12 +105,12 @@ print(data.get('safetyLevel', 'safe'))" "$RESULT" 2>/dev/null)
 
   if [ -z "$CMD" ]; then
     echo -e "\033[1;31m[!] Could not connect to llama.cpp on $BASHAI_ENDPOINT\033[0m"
-    echo -e "Please ensure llama-server is running on your machine:"
+    echo -e "Make sure llama-server is running on port 8888:"
     echo -e "  \033[36mllama-server -m your_model.gguf --port 8888 --host 127.0.0.1\033[0m"
     return 1
   fi
 
-  # Render formatted terminal preview card directly in the SSH terminal
+  # Render formatted terminal preview card directly in the terminal
   echo -e ""
   echo -e "\033[1;30m┌─────────────────────────────────────────────────────────────────┐\033[0m"
   if [ "$SAFETY" = "destructive" ]; then
@@ -126,18 +126,28 @@ print(data.get('safetyLevel', 'safe'))" "$RESULT" 2>/dev/null)
   echo -e "\033[1;30m└─────────────────────────────────────────────────────────────────┘\033[0m"
   echo -e ""
 
-  read -p $'\033[1m[Enter]\033[0m Execute in shell  |  \033[1m[e]\033[0m Edit command  |  \033[1m[q]\033[0m Cancel: ' ACTION
+  # Portable read prompt for both Bash and Zsh
+  printf "\033[1m[Enter]\033[0m Execute in shell  |  \033[1m[e]\033[0m Edit command  |  \033[1m[q]\033[0m Cancel: "
+  read -r ACTION
 
   case "$ACTION" in
     ""|"y"|"Y")
       echo -e "\033[0;32m==> Running:\033[0m $CMD"
       echo ""
-      history -s "$CMD"
+      if [ -n "$ZSH_VERSION" ]; then
+        print -s "$CMD"
+      else
+        history -s "$CMD" 2>/dev/null || true
+      fi
       eval "$CMD"
       ;;
     "e"|"E")
       echo ""
-      history -s "$CMD"
+      if [ -n "$ZSH_VERSION" ]; then
+        print -s "$CMD"
+      else
+        history -s "$CMD" 2>/dev/null || true
+      fi
       echo -e "Command loaded into history. Press \033[1;33m[Up Arrow]\033[0m to edit and execute:"
       echo -e "\033[1;36m$CMD\033[0m"
       ;;
@@ -146,3 +156,8 @@ print(data.get('safetyLevel', 'safe'))" "$RESULT" 2>/dev/null)
       ;;
   esac
 }
+
+# Bind aliases for both '?' and 'ai' so both work in Zsh and Bash
+alias '?'='bashai'
+alias 'ai'='bashai'
+?() { bashai "$@"; }

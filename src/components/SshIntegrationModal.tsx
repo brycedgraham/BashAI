@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Terminal, Shield, Key, Sliders, Server, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, Terminal, Shield, Sliders, Server, AlertTriangle } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -8,8 +8,7 @@ interface Props {
 
 export const SshIntegrationModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'direct' | 'curl'>('direct');
-  const [backend, setBackend] = useState<'llamacpp' | 'ollama' | 'openai'>('llamacpp');
+  const [shellType, setShellType] = useState<'zsh' | 'bash'>('zsh');
   const [port, setPort] = useState('8888');
   const [model, setModel] = useState('gemma-2b-it');
 
@@ -21,23 +20,26 @@ export const SshIntegrationModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // 100% self-contained paste block (zero external network calls, completely bypasses Cloud Run auth)
-  const selfContainedBlock = `cat << 'EOF' > ~/.bashai_llama.sh
-# BashAI Shell Assistant for llama.cpp on port ${port}
+  const rcFile = shellType === 'zsh' ? '~/.zshrc' : '~/.bashrc';
+  const scriptName = shellType === 'zsh' ? '~/.zshai_llama.zsh' : '~/.bashai_llama.sh';
+
+  // 100% self-contained paste block tailored for Zsh or Bash
+  const selfContainedBlock = `cat << 'EOF' > ${scriptName}
+# BashAI Shell Assistant for llama.cpp on port ${port} (${shellType.toUpperCase()})
 export BASHAI_ENDPOINT="http://localhost:${port}"
 export BASHAI_MODEL="${model}"
 
-?() {
+bashai() {
   if [ $# -eq 0 ]; then
-    echo -e "\\033[1;36m==> BashAI llama.cpp Assistant ($BASHAI_MODEL on port ${port})\\033[0m"
-    echo -e "Usage: \\033[33m? <plain english query>\\033[0m"
+    echo -e "\\033[1;36m==> BashAI llama.cpp Assistant ($BASHAI_MODEL on $BASHAI_ENDPOINT)\\033[0m"
+    echo -e "Usage: \\033[33m? <plain english query>\\033[0m or \\033[33mai <query>\\033[0m"
     echo -e "Example: \\033[32m? check listening ports\\033[0m"
     return 0
   fi
 
   local QUERY="$*"
   local CURRENT_DIR="$PWD"
-  echo -e "\\033[0;36m[BashAI]\\033[0m Querying llama.cpp on $BASHAI_ENDPOINT ($BASHAI_MODEL)..."
+  echo -e "\\033[0;36m[BashAI]\\033[0m Consulting llama.cpp on $BASHAI_ENDPOINT ($BASHAI_MODEL)..."
 
   local SYS_PROMPT="You are a Linux sysadmin assistant. Current dir: $CURRENT_DIR. Translate: '$QUERY' into a single bash command. Return JSON ONLY with fields: {\\"command\\": \\"...\\", \\"explanation\\": \\"...\\", \\"safetyLevel\\": \\"safe|warning|destructive\\"}"
 
@@ -101,17 +103,26 @@ except Exception:
   echo -e "\\033[1;30m└─────────────────────────────────────────────────────────────────┘\\033[0m"
   echo -e ""
 
-  read -p $'\\033[1m[Enter]\\033[0m Execute in shell  |  \\033[1m[e]\\033[0m Edit command  |  \\033[1m[q]\\033[0m Cancel: ' ACTION
+  printf "\\033[1m[Enter]\\033[0m Execute in shell  |  \\033[1m[e]\\033[0m Edit command  |  \\033[1m[q]\\033[0m Cancel: "
+  read -r ACTION
   case "$ACTION" in
     ""|"y"|"Y")
       echo -e "\\033[0;32m==> Running:\\033[0m $CMD"
       echo ""
-      history -s "$CMD"
+      if [ -n "$ZSH_VERSION" ]; then
+        print -s "$CMD"
+      else
+        history -s "$CMD" 2>/dev/null || true
+      fi
       eval "$CMD"
       ;;
     "e"|"E")
       echo ""
-      history -s "$CMD"
+      if [ -n "$ZSH_VERSION" ]; then
+        print -s "$CMD"
+      else
+        history -s "$CMD" 2>/dev/null || true
+      fi
       echo -e "Command loaded into history. Press \\033[1;33m[Up Arrow]\\033[0m to edit and execute:"
       echo -e "\\033[1;36m$CMD\\033[0m"
       ;;
@@ -120,11 +131,16 @@ except Exception:
       ;;
   esac
 }
+
+# Bind aliases for both '?' and 'ai'
+alias '?'='bashai'
+alias 'ai'='bashai'
+?() { bashai "$@"; }
 EOF
-grep -q "bashai_llama.sh" ~/.bashrc 2>/dev/null || echo '[ -f "$HOME/.bashai_llama.sh" ] && source "$HOME/.bashai_llama.sh"' >> ~/.bashrc
-source ~/.bashai_llama.sh
-echo -e "\\033[1;32m[✓] BashAI successfully installed for llama.cpp on port ${port}!\\033[0m"
-echo -e "Try it now: \\033[1;36m? check listening ports\\033[0m"`;
+grep -q "${scriptName}" ${rcFile} 2>/dev/null || echo '[ -f "${scriptName}" ] && source "${scriptName}"' >> ${rcFile}
+source ${scriptName}
+echo -e "\\033[1;32m[✓] BashAI successfully installed for ${shellType.toUpperCase()} with llama.cpp on port ${port}!\\033[0m"
+echo -e "Try it now in your terminal: \\033[1;36m? check listening ports\\033[0m (or \\033[1;36mai check ports\\033[0m)"`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
@@ -134,8 +150,12 @@ echo -e "Try it now: \\033[1;36m? check listening ports\\033[0m"`;
           <div className="flex items-center gap-2.5">
             <Terminal className="w-5 h-5 text-emerald-400" />
             <div>
-              <h2 className="text-sm font-semibold text-white">Direct SSH & Real Linux Shell Integration</h2>
-              <p className="text-xs text-neutral-400">Run directly inside your active SSH session on port {port}</p>
+              <h2 className="text-sm font-semibold text-white">
+                SSH Terminal Installation ({shellType.toUpperCase()})
+              </h2>
+              <p className="text-xs text-neutral-400">
+                Optimized for {shellType === 'zsh' ? 'Z Shell (Zsh / Oh-My-Zsh)' : 'GNU Bash'} with llama.cpp on port {port}
+              </p>
             </div>
           </div>
           <button
@@ -148,27 +168,54 @@ echo -e "Try it now: \\033[1;36m? check listening ports\\033[0m"`;
 
         {/* Content */}
         <div className="p-5 overflow-y-auto space-y-4 text-xs sm:text-sm">
-          {/* Note explaining why curl gave 404 */}
-          <div className="p-3 rounded bg-amber-950/40 border border-amber-800/80 text-amber-200 space-y-1">
-            <div className="font-semibold text-xs flex items-center gap-1.5 text-amber-300">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Why external `curl` returns 404:</span>
+          {/* Shell Selector Tabs */}
+          <div className="flex items-center justify-between p-1 bg-neutral-950 rounded-lg border border-neutral-800">
+            <span className="text-xs font-semibold text-neutral-300 px-3">Select Your Shell:</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setShellType('zsh')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  shellType === 'zsh'
+                    ? 'bg-cyan-600 text-white shadow-xs'
+                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                }`}
+              >
+                Zsh (Z Shell)
+              </button>
+              <button
+                type="button"
+                onClick={() => setShellType('bash')}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                  shellType === 'bash'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                }`}
+              >
+                Bash
+              </button>
             </div>
-            <p className="text-xs text-amber-200/90 leading-relaxed font-sans">
-              The AI Studio preview cloud URL (<code className="text-white font-mono bg-amber-900/60 px-1 py-0.5 rounded">ais-pre-...</code>) is protected behind Google authentication cookies. When curling from a remote terminal outside your browser, Google blocks the unauthenticated request.
-            </p>
-            <p className="text-xs text-amber-200/90 leading-relaxed font-sans font-medium">
-              Use the <strong className="text-white">Zero-Curl Paste Block below</strong>: it is 100% self-contained, requires no external internet requests, and installs in 1 second!
-            </p>
           </div>
+
+          {/* Zsh Specific Callout */}
+          {shellType === 'zsh' && (
+            <div className="p-3 rounded bg-cyan-950/40 border border-cyan-800/80 text-cyan-200 space-y-1">
+              <div className="font-semibold text-xs text-cyan-300">
+                Special Zsh Feature Handling:
+              </div>
+              <p className="text-xs text-cyan-200/90 leading-relaxed font-sans">
+                In Zsh, question marks are sometimes treated as wildcards. This script configures an alias for <code className="text-white font-mono bg-cyan-900/60 px-1 py-0.5 rounded">?</code> as well as <code className="text-white font-mono bg-cyan-900/60 px-1 py-0.5 rounded">ai</code>, so both <code className="text-white font-mono">? check ports</code> and <code className="text-white font-mono">ai check ports</code> work cleanly without wildcard errors.
+              </p>
+            </div>
+          )}
 
           {/* Parameters */}
           <div className="p-3 rounded bg-neutral-950/80 border border-neutral-800 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-cyan-400" /> Your llama.cpp Settings
+                <Sliders className="w-3.5 h-3.5 text-cyan-400" /> llama.cpp Parameters
               </span>
-              <span className="text-[11px] text-cyan-400 font-mono">Port {port}</span>
+              <span className="text-[11px] text-cyan-400 font-mono">Configures {rcFile}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-xs">
@@ -199,11 +246,34 @@ echo -e "Try it now: \\033[1;36m? check listening ports\\033[0m"`;
             </div>
           </div>
 
+          {/* Downloaded Files Local Execution Card */}
+          <div className="p-3 rounded-lg bg-neutral-950/80 border border-neutral-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-cyan-400 flex items-center gap-1.5">
+                <Terminal className="w-3.5 h-3.5" /> Option 1: Run Downloaded Code File Locally
+              </span>
+              <button
+                onClick={() => handleCopy("bash public/install.sh", 'local-run')}
+                className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-white cursor-pointer"
+              >
+                {copiedId === 'local-run' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedId === 'local-run' ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-400">
+              Since you have the downloaded files on your server, simply run the installer directly. It automatically detects Zsh and Bash:
+            </p>
+            <div className="flex items-center justify-between p-2 rounded bg-black/80 font-mono text-xs text-emerald-300 border border-neutral-800/80">
+              <code>bash public/install.sh</code>
+              <span className="text-[10px] text-neutral-500 font-sans">(or: chmod +x public/install.sh && ./public/install.sh)</span>
+            </div>
+          </div>
+
           {/* Self-Contained Paste Block */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                <Terminal className="w-4 h-4" /> Recommended: 1-Click Copy & Paste into SSH Terminal
+                <Terminal className="w-4 h-4" /> Option 2: Zero-File Terminal Paste Block
               </label>
               <button
                 onClick={() => handleCopy(selfContainedBlock, 'self-contained')}
@@ -219,40 +289,17 @@ echo -e "Try it now: \\033[1;36m? check listening ports\\033[0m"`;
             </pre>
           </div>
 
-          {/* How It Operates */}
-          <div className="space-y-2 pt-2 border-t border-neutral-800/80">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
-              How It Works When You Type `? &lt;query&gt;`:
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 rounded bg-neutral-950/60 border border-neutral-800/60 flex items-start gap-2">
-                <Server className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold text-white">Direct Localhost Connection</span>
-                  <p className="text-neutral-400 text-[11px] mt-0.5">
-                    Sends OpenAI requests to <code className="text-neutral-300">http://localhost:{port}/v1/chat/completions</code> on the local machine with 0 network latency.
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded bg-neutral-950/60 border border-neutral-800/60 flex items-start gap-2">
-                <Shield className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold text-white">Interactive Confirmation</span>
-                  <p className="text-neutral-400 text-[11px] mt-0.5">
-                    Shows dry-run preview with safety checks. Press <kbd className="px-1 py-0.5 bg-neutral-800 rounded font-mono text-[10px]">Enter</kbd> to execute, <kbd className="px-1 py-0.5 bg-neutral-800 rounded font-mono text-[10px]">e</kbd> to edit.
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Activation step */}
+          <div className="p-2.5 rounded bg-neutral-950/60 border border-neutral-800 text-xs flex items-center justify-between">
+            <span className="text-neutral-400">To activate in your current session:</span>
+            <code className="text-cyan-300 font-mono font-semibold">source {rcFile}</code>
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-neutral-800 bg-neutral-950/40">
           <div className="text-xs text-neutral-400">
-            Start llama.cpp: <code className="text-cyan-300 font-mono">llama-server -m your_model.gguf --port {port}</code>
+            Target: <code className="text-cyan-300 font-mono">{rcFile}</code>
           </div>
           <button
             onClick={onClose}
