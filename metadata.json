@@ -1,0 +1,6 @@
+{
+  "name": "BashAI Terminal",
+  "description": "Natural language Linux server administration terminal powered by small local LLM models like Gemma 2B and Gemma 4 E2B.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
