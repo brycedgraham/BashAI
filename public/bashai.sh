@@ -17,15 +17,64 @@ export BASHAI_MODEL="${BASHAI_MODEL:-gemma-2b-it}"
 export BASHAI_API_KEY="${BASHAI_API_KEY:-}"
 
 bashai() {
+  # Dynamically reload user configuration if modified
+  if [ -f "$HOME/.bashai/config.env" ]; then
+    source "$HOME/.bashai/config.env"
+  fi
+
   if [ $# -eq 0 ]; then
     echo -e "\033[1;36m==> BashAI Small LLM Shell Assistant\033[0m"
     echo -e "Backend:  \033[32m$BASHAI_BACKEND\033[0m"
     echo -e "Endpoint: \033[33m$BASHAI_ENDPOINT\033[0m"
     echo -e "Model:    \033[35m$BASHAI_MODEL\033[0m"
     echo ""
-    echo -e "Usage: \033[33m? <plain english query>\033[0m or \033[33mai <query>\033[0m"
+    echo -e "Usage:   \033[33m? <plain english query>\033[0m or \033[33mai <query>\033[0m"
     echo -e "Example: \033[32m? restart nginx and check logs\033[0m"
-    echo -e "To change config: edit \033[34m~/.bashai/config.env\033[0m"
+    echo -e "Config:  \033[34m? config\033[0m (or edit \033[34m~/.bashai/config.env\033[0m)"
+    return 0
+  fi
+
+  # Interactive configuration viewer and prompt
+  if [ "$1" = "config" ] || [ "$1" = "--config" ]; then
+    echo -e "\033[1;36m==> BashAI Configuration\033[0m"
+    echo -e "Backend:  \033[32m$BASHAI_BACKEND\033[0m"
+    echo -e "Endpoint: \033[33m$BASHAI_ENDPOINT\033[0m"
+    echo -e "Model:    \033[35m$BASHAI_MODEL\033[0m"
+    if [ -n "$BASHAI_API_KEY" ]; then
+      echo -e "API Key:  \033[33m[Configured]\033[0m"
+    else
+      echo -e "API Key:  \033[33m[None]\033[0m"
+    fi
+    echo -e "File:     \033[34m$HOME/.bashai/config.env\033[0m"
+    echo ""
+    printf "Do you want to reconfigure these values now? [y/N]: "
+    read -r RECONF
+    case "$RECONF" in
+      "y"|"Y")
+        printf "Enter Endpoint [%s]: " "$BASHAI_ENDPOINT"
+        read -r NEW_EP
+        [ -n "$NEW_EP" ] && BASHAI_ENDPOINT="$NEW_EP"
+
+        printf "Enter Model [%s]: " "$BASHAI_MODEL"
+        read -r NEW_MOD
+        [ -n "$NEW_MOD" ] && BASHAI_MODEL="$NEW_MOD"
+
+        printf "Enter API Key (press Enter if none): "
+        read -r NEW_KEY
+        [ -n "$NEW_KEY" ] && BASHAI_API_KEY="$NEW_KEY"
+
+        cat <<EOFCONFIG > "$HOME/.bashai/config.env"
+export BASHAI_BACKEND="$BASHAI_BACKEND"
+export BASHAI_ENDPOINT="$BASHAI_ENDPOINT"
+export BASHAI_MODEL="$BASHAI_MODEL"
+export BASHAI_API_KEY="$BASHAI_API_KEY"
+EOFCONFIG
+        echo -e "\033[1;32m[✓] Settings updated in ~/.bashai/config.env\033[0m"
+        ;;
+      *)
+        echo -e "No changes made."
+        ;;
+    esac
     return 0
   fi
 
